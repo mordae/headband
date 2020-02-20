@@ -1,0 +1,5 @@
+#!/bin/bash
+
+export PATH="${HOME}/.espressif/tools/xtensa-esp32-elf/esp-2020r1-8.2.0/xtensa-esp32-elf/bin:${PATH}"
+export IDF_PATH="${PWD}/vendor/esp-idf"
+export ESPBAUD=921600

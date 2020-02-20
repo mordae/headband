@@ -1,0 +1,8 @@
+[submodule "vendor/esp-idf"]
+	path = vendor/esp-idf
+	url = https://github.com/espressif/esp-idf.git
+	branch = release/v4.2
+[submodule "vendor/esp32_binary_merger"]
+	path = vendor/esp32_binary_merger
+	url = https://github.com/vtunr/esp32_binary_merger.git
+	branch = master

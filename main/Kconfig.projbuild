@@ -1,0 +1,62 @@
+menu "Headband Configuration"
+
+    menu "WiFi"
+
+        config WIFI_SSID
+            string "WiFi SSID"
+            default "shrecknet-2.4GHz"
+            help
+                SSID (network name) to connect to.
+
+        config WIFI_PASSWORD
+            string "WiFi Password"
+            default "Steins;Gate"
+            help
+                WiFi password (WPA or WPA2) to use.
+
+        config WIFI_LISTEN_INTERVAL
+            int "WiFi listen interval"
+            default 1
+            help
+                Interval for station to listen to beacon from AP.
+                The unit of listen interval is one beacon interval.
+                For example, if beacon interval is 100ms and listen
+                interval is 3, the interval for station to listen
+                to beacon is 300ms.
+
+    endmenu
+
+    menu "Server"
+
+        config SERVER_HOST
+            string "Server Host"
+            default "192.168.0.100"
+            help
+                Hostname of the UDP server to send readings to.
+
+        config SERVER_PORT
+            string "Server Port"
+            default "9003"
+            help
+                Port of the UDP server to send readings to.
+
+    endmenu
+
+    menu "MPU9250 Sensor"
+
+        config MPU9250_SDA_GPIO
+            int "GPIO pin corresponding to SDA"
+            range 0 33
+            default 26
+
+        config MPU9250_SCL_GPIO
+            int "GPIO pin corresponding to SCL"
+            range 0 33
+            default 25
+
+    endmenu
+
+endmenu
+
+
+# vim:set sw=4 ts=4 et:

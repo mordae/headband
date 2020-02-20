@@ -1,0 +1,11 @@
+#!/bin/bash -e
+
+python2 vendor/esp32_binary_merger/merge_bin_esp.py \
+	--output_name headband.bin \
+	--bin_address 0x8000 0x1000 0x10000 \
+	--bin_path \
+		partition_table/partition-table.bin \
+		bootloader/bootloader.bin \
+		headband.bin
+
+# EOF
