@@ -22,8 +22,6 @@
 #include <esp_log.h>
 #include <esp_pm.h>
 
-#include <nvs_flash.h>
-
 #include <i2ce.h>
 #include <mpu9250.h>
 #include <ak8963.h>
@@ -32,47 +30,6 @@
 
 /* Tag for logging. */
 static const char tag[] = "main";
-
-
-static nvs_handle_t nvs;
-
-
-struct calibration {
-	float magm_min[3];
-	float magm_max[3];
-};
-
-struct calibration calibration = {};
-
-
-static void init_chip(void)
-{
-	esp_chip_info_t chip_info;
-	esp_chip_info(&chip_info);
-
-	ESP_LOGI(tag, "Running on a %i-core %s r%i chip.",
-			chip_info.cores,
-			CONFIG_IDF_TARGET,
-			chip_info.revision);
-
-	ESP_LOGI(tag, "We have a %iMB %s flash.",
-			spi_flash_get_chip_size() / (1<<20),
-			(chip_info.features & CHIP_FEATURE_EMB_FLASH)
-				? "embedded" : "external");
-
-	ESP_LOGI(tag, "Configure non-volatile storage...");
-
-	esp_err_t ret = nvs_flash_init();
-	if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-		ESP_LOGI(tag, "Erasing NVS...");
-		ESP_ERROR_CHECK(nvs_flash_erase());
-		ret = nvs_flash_init();
-	}
-
-	ESP_ERROR_CHECK(ret);
-
-	ESP_ERROR_CHECK(nvs_open("headband", NVS_READWRITE, &nvs));
-}
 
 
 static void init_i2c(void)
@@ -110,23 +67,12 @@ static void delay(unsigned ms)
 
 void app_main()
 {
-	init_chip();
 	init_i2c();
 	init_sensors();
 
-	float *magm_min = calibration.magm_min;
-	float *magm_max = calibration.magm_max;
-
-	size_t len = sizeof(calibration);
-
-	if (ESP_OK != nvs_get_blob(nvs, "calib", &calibration, &len)) {
-		ESP_LOGE(tag, "No previous calibration data found.");
-	}
-
-	if (len != sizeof(calibration)) {
-		ESP_LOGE(tag, "Calibration data size changed, ignoring.");
-		memset(&calibration, 0, sizeof(calibration));
-	}
+	float magm_off[3] = { 470.70,  342.86,  233.05};
+	float magm_neg[3] = {0.94, 1.04, 0.91};
+	float magm_pos[3] = {0.94, 1.02, 1.20};
 
 	for (size_t i = 1; /**/; i++) {
 		float accm[3], gyro[3], tmp[3], magm[3], temp;
@@ -138,6 +84,9 @@ void app_main()
 			continue;
 		}
 
+		/* Scale temperature properly. */
+		temp = temp / 333 + 21;
+
 		/*
 		 * Align magnetometer with the accelerometer and gyroscope.
 		 * https://github.com/kriswiner/MPU9250/pull/370#issuecomment-491806904
@@ -146,58 +95,19 @@ void app_main()
 		magm[1] =  tmp[0];
 		magm[2] = -tmp[2];
 
-		/* Scale temperature properly. */
-		temp = temp / 333 + 21;
+		/*
+		 * Remove hard iron effects by subtracting the offsets.
+		 */
+		magm[0] -= magm_off[0];
+		magm[1] -= magm_off[1];
+		magm[2] -= magm_off[2];
 
 		/*
-		 * Remove hard iron affects by storing minimum and maximum
-		 * values and then removing the offset from center.
+		 * Remove soft iron effects by scaling individual axes.
 		 */
-		magm_min[0] = fmin(magm_min[0], magm[0]);
-		magm_min[1] = fmin(magm_min[1], magm[1]);
-		magm_min[2] = fmin(magm_min[2], magm[2]);
-
-		magm_max[0] = fmax(magm_max[0], magm[0]);
-		magm_max[1] = fmax(magm_max[1], magm[1]);
-		magm_max[2] = fmax(magm_max[2], magm[2]);
-
-		/* Persist calibration from time to time. */
-		if (0 == (i % 600)) {
-			ESP_LOGI(tag, "Saving calibration data...");
-			ESP_ERROR_CHECK(nvs_set_blob(nvs, "calib", &calibration, sizeof(calibration)));
-		}
-
-		magm[0] -= (magm_min[0] + magm_max[0]) / 2.0;
-		magm[1] -= (magm_min[1] + magm_max[1]) / 2.0;
-		magm[2] -= (magm_min[2] + magm_max[2]) / 2.0;
-
-		/*
-		 * Remove soft iron effects by calculating average radius
-		 * and then scaling the individual axes accordingly.
-		 */
-		float vmin[3] = {
-			magm_min[0] - (magm_min[0] + magm_max[0]) / 2.0,
-			magm_min[1] - (magm_min[1] + magm_max[1]) / 2.0,
-			magm_min[2] - (magm_min[2] + magm_max[2]) / 2.0,
-		};
-
-		float vmax[3] = {
-			magm_max[0] - (magm_min[0] + magm_max[0]) / 2.0,
-			magm_max[1] - (magm_min[1] + magm_max[1]) / 2.0,
-			magm_max[2] - (magm_min[2] + magm_max[2]) / 2.0,
-		};
-
-		float avgs[3] = {
-			(vmax[0] - vmin[0]) / 2.0,
-			(vmax[1] - vmin[1]) / 2.0,
-			(vmax[2] - vmin[2]) / 2.0,
-		};
-
-		float avg_radius = (avgs[0] + avgs[1] + avgs[2]) / 3.0;
-
-		magm[0] *= avg_radius / avgs[0];
-		magm[1] *= avg_radius / avgs[1];
-		magm[2] *= avg_radius / avgs[2];
+		magm[0] *= magm[0] < 0 ? magm_neg[0] : magm_pos[0];
+		magm[1] *= magm[1] < 0 ? magm_neg[1] : magm_pos[1];
+		magm[2] *= magm[2] < 0 ? magm_neg[2] : magm_pos[2];
 
 #if 0
 		printf("%6.0f %6.0f %6.0f / %6.0f %6.0f %6.0f / %6.0f %6.0f %6.0f / %4.0f°C\n",
@@ -208,6 +118,8 @@ void app_main()
 #endif
 
 #if 1
+		printf("MAG: [%f, %f, %f]\n", magm[0], magm[1], magm[2]);
+
 		vec3 down  = {{accm[0], accm[1], accm[2]}};
 		vec3 east  = {{magm[0], magm[1], magm[2]}};
 		east = vec3cross(down, east);
